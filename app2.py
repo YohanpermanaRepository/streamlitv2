@@ -142,7 +142,8 @@ def load_model(model_path):
 model_options = {
     "Epoch 40": "1Kl5_XzzN6FT84AeJM14JT7E0cbXtA9L9",  
     "Epoch 80": "1qusiTrGxUzV6mCA4G8Sij8z-vGzyrCOX",
-    "Epoch 100": "1bVKGgGjHdX4F2t3n3LiKfHyQwHj9ltTP"
+    "Epoch 100": "1bVKGgGjHdX4F2t3n3LiKfHyQwHj9ltTP",
+    "Epoch 150": "1PMQVxvDTmLqP1DhX8xmP3K_iw_RCJsQN"
 }
 
 selected_model_name = st.selectbox("Pilih Pretrained Model", list(model_options.keys()))
