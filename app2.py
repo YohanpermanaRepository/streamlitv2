@@ -170,7 +170,7 @@ if method == "-":
     - **GAN**: Utilizing a Generative Adversarial Network (GAN) model for batik colorization, trained on 485 images of Madura batik. This method leverages deep learning to achieve accurate and realistic colorization of batik images.
     - **CNN Pretrained Caffe**: This method utilizes a CNN model based on Pretrained Caffe, where the model has been trained with external coloring data without involving batik images.
     """)
-    st.image("https://res-console.cloudinary.com/ddu9qoyjl/media_explorer_thumbnails/6c3d8c7cbaf03abf24f5e0cf9b41e227/detailed", caption="Contoh Gambar", use_column_width=True)
+    st.image("https://res.cloudinary.com/ddu9qoyjl/image/upload/v1726564586/gs7ubzctsg0odjugewic.jpg", caption="Contoh Gambar", use_column_width=True)
     st.write("*MBKM RISET 2024 Universitas Trunojoyo Madura*")
 
 
