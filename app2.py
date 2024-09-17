@@ -157,6 +157,8 @@ net_G = load_model(model_path)
 
 # Aplikasi Streamlit
 st.title('Generative Adversarial Network Coloring Batik')
+# Definisikan device untuk pemrosesan (CPU atau GPU)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Pengunggah file (dengan multiple file upload)
 uploaded_files = st.file_uploader("Choose images...", type="jpg", accept_multiple_files=True)
@@ -188,16 +190,6 @@ if uploaded_files:
             fake_color = fake_color.detach()
 
         # Mengonversi Lab ke RGB
-        def lab_to_rgb(L, ab):
-            L = (L + 1.) * 50.
-            ab = ab * 110.
-            Lab = torch.cat([L, ab], dim=1).permute(0, 2, 3, 1).cpu().numpy()
-            rgb_imgs = []
-            for img in Lab:
-                img_rgb = lab2rgb(img)
-                rgb_imgs.append(img_rgb)
-            return np.stack(rgb_imgs, axis=0)
-
         fake_imgs = lab_to_rgb(L, fake_color)
         fake_img = fake_imgs[0]
 
@@ -219,4 +211,5 @@ if uploaded_files:
         result.save(buf, format="JPEG")
         byte_im = buf.getvalue()
         st.download_button(f"Download Result for {uploaded_file.name}", data=byte_im, file_name=f"colorized_image_{uploaded_file.name}", mime="image/jpeg")
+
 
