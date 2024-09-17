@@ -18,9 +18,18 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 import glob
 from torch import nn
+import cv2 as cv
+import streamlit as st
+import os
+import gdown
+import numpy as np
+import cv2 as cv
+import torch
+from PIL import Image
+from io import BytesIO
+from torchvision import transforms
+from skimage.color import rgb2lab, lab2rgb
 
-
-# Fungsi upsample dan downsample tetap sama
 
 def upsample(c_in, c_out, dropout=False):
     result = nn.Sequential()
@@ -121,8 +130,7 @@ def lab_to_rgb(L, ab):
         rgb_imgs.append(img_rgb)
     return np.stack(rgb_imgs, axis=0)
 
-# Streamlit UI
-st.title('Generative Adversarial Network Coloring Batik V2')
+
 
 # Fungsi unduhan file model
 def download_model_if_not_exists(model_path, file_id):
@@ -146,71 +154,178 @@ model_options = {
     "Epoch 150": "1PMQVxvDTmLqP1DhX8xmP3K_iw_RCJsQN"
 }
 
-selected_model_name = st.selectbox("Pilih Pretrained Model", list(model_options.keys()))
-selected_model_file_id = model_options[selected_model_name]
-model_path = f'{selected_model_name}.pth'
 
-# Unduh model jika belum ada
-download_model_if_not_exists(model_path, selected_model_file_id)
+# Sidebar untuk memilih metode
+method = st.sidebar.selectbox("Pilih Metode", ["-", "GAN (Generative Adversarial Network)", "CNN Pretrained Caffe"])
 
-# Load model yang dipilih
-net_G = load_model(model_path)
 
-# Aplikasi Streamlit
-st.title('Generative Adversarial Network Coloring Batik')
-# Definisikan device untuk pemrosesan (CPU atau GPU)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if method == "-":
+    st.title("Welcome to the Batik Colorization Application Based on Deep Learning Model.")
+    st.write("Please select the desired method from the sidebar to start processing images.")
+    
+    # Tampilkan teks dan gambar default
+    st.write("""
+    In this option, you can choose two image processing methods for coloring batik images.:
+    
+    - **GAN**: Utilizing a Generative Adversarial Network (GAN) model for batik colorization, trained on 485 images of Madura batik. This method leverages deep learning to achieve accurate and realistic colorization of batik images.
+    - **CNN Pretrained Caffe**: This method utilizes a CNN model based on Pretrained Caffe, where the model has been trained with external coloring data without involving batik images.
+    """)
+    st.image("https://res-console.cloudinary.com/ddu9qoyjl/media_explorer_thumbnails/6c3d8c7cbaf03abf24f5e0cf9b41e227/detailed", caption="Contoh Gambar", use_column_width=True)
+    st.write("*MBKM RISET 2024 Universitas Trunojoyo Madura*")
 
-# Pengunggah file (dengan multiple file upload)
-uploaded_files = st.file_uploader("Choose images...", type="jpg", accept_multiple_files=True)
 
-if uploaded_files:
-    for uploaded_file in uploaded_files:
-        image = Image.open(uploaded_file).convert("RGB")
+elif method == "GAN (Generative Adversarial Network)":
+    selected_model_name = st.selectbox("Pilih Pretrained Model", list(model_options.keys()))
+    selected_model_file_id = model_options[selected_model_name]
+    model_path = f'{selected_model_name}.pth'
+
+    # Unduh model jika belum ada
+    download_model_if_not_exists(model_path, selected_model_file_id)
+
+    # Load model yang dipilih
+    net_G = load_model(model_path)
+
+    # Definisikan device untuk pemrosesan (CPU atau GPU)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Pengunggah file (dengan multiple file upload)
+    uploaded_files = st.file_uploader("Choose images...", type="jpg", accept_multiple_files=True)
+
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            image = Image.open(uploaded_file).convert("RGB")
+            
+            # Crop gambar agar ukuran sama
+            size = (256, 256)  # Ukuran yang diinginkan
+            image_cropped = image.resize(size, Image.LANCZOS)  # Menggunakan LANCZOS sebagai alternatif
+
+            # Pra-pemrosesan gambar
+            img = np.array(image_cropped)
+            img_lab = rgb2lab(img).astype("float32")
+            img_lab = transforms.ToTensor()(img_lab)
+            L = img_lab[[0], ...] / 50. - 1.  # Saluran warna luminance
+
+            # Membuat tensor
+            L = L.unsqueeze(0).to(device)
+
+            # Membuat Gambar Grayscale dari saluran L
+            gray_image = (L.squeeze().cpu().numpy() + 1.) * 255 / 2  # Mengonversi saluran L ke rentang [0, 255]
+            gray_image = gray_image.astype(np.uint8)  # Mengubah ke uint8
+
+            # Meneruskan melalui model
+            with torch.no_grad():
+                fake_color = net_G(L)
+                fake_color = fake_color.detach()
+
+            # Mengonversi Lab ke RGB
+            fake_imgs = lab_to_rgb(L, fake_color)
+            fake_img = fake_imgs[0]
+
+            # Menampilkan gambar keluaran dalam satu baris
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.image(image_cropped, caption='Uploaded Image', use_column_width=True)
+
+            with col2:
+                st.image(gray_image, caption='Grayscale Image (L channel)', use_column_width=True, clamp=True)
+
+            with col3:
+                st.image(fake_img, caption='Colorized Image', use_column_width=True)
+
+            # Opsi untuk mengunduh hasil
+            result = Image.fromarray((fake_img * 255).astype(np.uint8))
+            buf = BytesIO()
+            result.save(buf, format="JPEG")
+            byte_im = buf.getvalue()
+            st.download_button(f"Download Result for {uploaded_file.name}", data=byte_im, file_name=f"colorized_image_{uploaded_file.name}", mime="image/jpeg")
+
+
+# Model OpenCV
+elif method == "CNN Pretrained Caffe":
+    st.title("Image Colorization with CNN Pretrained Caffe")
+
+    # Define paths for model files
+    DIR = 'model'
+    if not os.path.exists(DIR):
+        os.makedirs(DIR)
+
+    # Paths for model files
+    PROTOTXT_PATH = os.path.join(DIR, 'colorization_deploy_v2.prototxt')
+    POINTS_PATH = os.path.join(DIR, 'pts_in_hull.npy')
+    MODEL_PATH = os.path.join(DIR, 'colorization_release_v2.caffemodel')
+
+    # Check if model files exist, if not download
+    if not (os.path.exists(PROTOTXT_PATH) and os.path.exists(POINTS_PATH) and os.path.exists(MODEL_PATH)):
+        st.write("Downloading model files...")
+        # URLs for model files on Google Drive
+        PROTOTXT_URL = 'https://drive.google.com/uc?id=1DZ4cFBYC3_KjOn2ayrhnk2XKHt6E54EJ'
+        POINTS_URL = 'https://drive.google.com/uc?id=1Qh54l1Jhh5psiytgsv9WmJVByjpHdF8o'
+        MODEL_URL = 'https://drive.google.com/uc?id=1RCb6SJN2T5tdrpPUXEx0L4GBaTtc2OcL'
         
-        # Crop gambar agar ukuran sama
-        size = (256, 256)  # Ukuran yang diinginkan
-        image_cropped = image.resize(size, Image.LANCZOS)  # Menggunakan LANCZOS sebagai alternatif
+        # Download the model files
+        gdown.download(PROTOTXT_URL, PROTOTXT_PATH, quiet=False)
+        gdown.download(POINTS_URL, POINTS_PATH, quiet=False)
+        gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
 
-        # Pra-pemrosesan gambar
-        img = np.array(image_cropped)
-        img_lab = rgb2lab(img).astype("float32")
-        img_lab = transforms.ToTensor()(img_lab)
-        L = img_lab[[0], ...] / 50. - 1.  # Saluran warna luminance
+    # Load the Model
+    net = cv.dnn.readNetFromCaffe(PROTOTXT_PATH, MODEL_PATH)
+    pts = np.load(POINTS_PATH)
 
-        # Membuat tensor
-        L = L.unsqueeze(0).to(device)
+    # Load centers for ab channel quantization used for rebalancing
+    class8 = net.getLayerId("class8_ab")
+    conv8 = net.getLayerId("conv8_313_rh")
+    pts = pts.transpose().reshape(2, 313, 1, 1)
+    net.getLayer(class8).blobs = [pts.astype("float32")]
+    net.getLayer(conv8).blobs = [np.full([1, 313], 2.606, dtype="float32")]
 
-        # Membuat Gambar Grayscale dari saluran L
-        gray_image = (L.squeeze().cpu().numpy() + 1.) * 255 / 2  # Mengonversi saluran L ke rentang [0, 255]
-        gray_image = gray_image.astype(np.uint8)  # Mengubah ke uint8
+    # Upload images
+    uploaded_files = st.file_uploader("Choose images...", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
-        # Meneruskan melalui model
-        with torch.no_grad():
-            fake_color = net_G(L)
-            fake_color = fake_color.detach()
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            # Read the uploaded image
+            image = cv.imdecode(np.frombuffer(uploaded_file.read(), np.uint8), cv.IMREAD_COLOR)
+            
+            # Resize the image to 256x256 pixels
+            image_resized = cv.resize(image, (256, 256))
+            
+            # Convert the image to grayscale
+            gray_image = cv.cvtColor(image_resized, cv.COLOR_BGR2GRAY)
 
-        # Mengonversi Lab ke RGB
-        fake_imgs = lab_to_rgb(L, fake_color)
-        fake_img = fake_imgs[0]
+            # Process the image
+            scaled = image_resized.astype("float32") / 255.0
+            lab = cv.cvtColor(scaled, cv.COLOR_BGR2LAB)
+            
+            resized = cv.resize(lab, (224, 224))  # Resize for model input
+            L = cv.split(resized)[0]
+            L -= 50
+            
+            st.write(f"Colorizing the image: {uploaded_file.name}...")
+            net.setInput(cv.dnn.blobFromImage(L))
+            ab = net.forward()[0, :, :, :].transpose((1, 2, 0))
+            
+            ab = cv.resize(ab, (image_resized.shape[1], image_resized.shape[0]))
+            
+            L = cv.split(lab)[0]
+            colorized = np.concatenate((L[:, :, np.newaxis], ab), axis=2)
+            
+            colorized = cv.cvtColor(colorized, cv.COLOR_LAB2BGR)
+            colorized = np.clip(colorized, 0, 1)
+            colorized = (255 * colorized).astype("uint8")
+            
+            # Display images in a row
+            col1, col2, col3 = st.columns(3)
 
-        # Menampilkan gambar keluaran dalam satu baris
-        col1, col2, col3 = st.columns(3)
+            with col1:
+                st.image(image_resized, channels="BGR", caption='Uploaded Image', use_column_width=True)
 
-        with col1:
-            st.image(image_cropped, caption='Uploaded Image', use_column_width=True)
+            with col2:
+                st.image(gray_image, channels="GRAY", caption="Grayscale Image (L channel)", use_column_width=True)
 
-        with col2:
-            st.image(gray_image, caption='Grayscale Image (L channel)', use_column_width=True, clamp=True)
+            with col3:
+                st.image(colorized, channels="BGR", caption='Colorized Image', use_column_width=True)
 
-        with col3:
-            st.image(fake_img, caption='Colorized Image', use_column_width=True)
-
-        # Opsi untuk mengunduh hasil
-        result = Image.fromarray((fake_img * 255).astype(np.uint8))
-        buf = BytesIO()
-        result.save(buf, format="JPEG")
-        byte_im = buf.getvalue()
-        st.download_button(f"Download Result for {uploaded_file.name}", data=byte_im, file_name=f"colorized_image_{uploaded_file.name}", mime="image/jpeg")
-
-
+            # Option to download the colorized image
+            result_image = cv.imencode('.png', colorized)[1].tobytes()
+            st.download_button(label=f"Download Colorized Image - {uploaded_file.name}", data=result_image, file_name=f"colorized_{uploaded_file.name}", mime="image/png")
