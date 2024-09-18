@@ -30,6 +30,15 @@ from io import BytesIO
 from torchvision import transforms
 from skimage.color import rgb2lab, lab2rgb
 
+import streamlit as st
+import tensorflow as tf
+import numpy as np
+from PIL import Image
+import cv2 as cv
+import io
+import gdown
+import os
+
 
 def upsample(c_in, c_out, dropout=False):
     result = nn.Sequential()
@@ -156,7 +165,8 @@ model_options = {
 
 
 # Sidebar untuk memilih metode
-method = st.sidebar.selectbox("Pilih Metode", ["-", "GAN (Generative Adversarial Network)", "CNN Pretrained Caffe"])
+
+method = st.sidebar.selectbox("Pilih Metode", ["-", "GAN 1 With Tensorflow", "GAN 2 With Pytroch", "CNN Pretrained Caffe"])
 
 
 if method == "-":
@@ -174,10 +184,110 @@ if method == "-":
     st.write("*MBKM RISET 2024 Universitas Trunojoyo Madura*")
 
 
-elif method == "GAN (Generative Adversarial Network)":
+
+elif method == "GAN 1 With Tensorflow":
+    # Fungsi untuk mengunduh model dari Google Drive menggunakan gdown
+    def download_model_from_drive(model_id, output_path):
+        url = f"https://drive.google.com/uc?id={model_id}"
+        gdown.download(url, output_path, quiet=False)
+
+    # Fungsi untuk memuat model generator yang disimpan dalam format .h5
+    @st.cache_resource
+    def load_model(model_path, model_id):
+        if not os.path.exists(model_path):
+            st.warning(f"Mengunduh model dari Google Drive ke: {model_path}")
+            download_model_from_drive(model_id, model_path)
+        model = tf.keras.models.load_model(model_path)
+        return model
+
+    # Fungsi untuk melakukan prediksi pada gambar grayscale dengan model GAN
+    def predict_image(generator, grayscale_image):
+        grayscale_image = np.array(grayscale_image)
+        grayscale_image = cv.resize(grayscale_image, (256, 256))
+        grayscale_image = grayscale_image.astype('float32') / 255.0
+        grayscale_image = np.expand_dims(grayscale_image, axis=-1)  # Ubah jadi 1 channel
+        grayscale_image = np.repeat(grayscale_image, 3, axis=-1)  # Ubah jadi 3 channel
+        grayscale_image = np.expand_dims(grayscale_image, axis=0)  # Tambah dimensi batch
+        prediction = generator.predict(grayscale_image)
+        prediction = np.clip(prediction[0], 0, 1)
+        return prediction
+
+    # Menggunakan komponen file_uploader di layout utama
+    uploaded_files = st.file_uploader("Pilih gambar", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+
+    # Jika tidak ada gambar yang diunggah, tampilkan teks sambutan
+    if not uploaded_files:
+        st.title("Image Colorization with GAN 1 Tensorflow")
+
+    else:
+        # Jika gambar telah diunggah, hilangkan teks sambutan
+        st.title("Hasil Prediksi Gambar Berwarna menggunakan GAN")
+
+        # Dropdown untuk memilih model GAN di layout utama
+        model_option = st.selectbox(
+            "Pilih model GAN",
+            ["Model Epoch 40", "Model Epoch 100"]
+        )
+
+        # Menentukan path model dan Google Drive ID berdasarkan pilihan dropdown
+        model_info = {
+            "Model Epoch 40": ("generator_epoch40.h5", "122vKlan3zBfSHA4mq4OJiPQpSM9CqDDa"),
+            "Model Epoch 100": ("generator_epoch100.h5", "1q4LNa__tLMV9C_NDH2MekP2XVaLKNXT3")
+        }
+        model_path, model_id = model_info[model_option]
+
+        # Load model GAN yang sudah dilatih
+        generator = load_model(model_path, model_id)
+
+        for uploaded_file in uploaded_files:
+            # Membaca gambar dalam grayscale
+            grayscale_image = Image.open(uploaded_file).convert("L")
+
+            # Prediksi gambar berwarna dengan GAN
+            prediction_image = predict_image(generator, grayscale_image)
+
+            # Ubah ukuran gambar agar konsisten
+            target_size = (256, 256)
+            grayscale_image = grayscale_image.resize(target_size)
+            input_image = Image.open(uploaded_file).resize(target_size)
+            prediction_image = Image.fromarray((prediction_image * 255).astype(np.uint8)).resize(target_size)
+
+            # Menampilkan gambar inputan, grayscale, dan hasil prediksi
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.image(input_image, caption="Gambar Inputan", use_column_width=True)
+            with col2:
+                st.image(grayscale_image, caption="Gambar Grayscale", use_column_width=True)
+            with col3:
+                st.image(prediction_image, caption="Gambar Hasil Prediksi", use_column_width=True)
+
+            # Menyimpan dan mengunduh gambar hasil prediksi
+            save_path = f"predicted_{uploaded_file.name}"
+            img_bytes = io.BytesIO()
+            prediction_image.save(img_bytes, format='PNG')
+            img_bytes.seek(0)
+
+            st.download_button(
+                label=f"Download Gambar Hasil Prediksi",
+                data=img_bytes,
+                file_name=save_path,
+                mime="image/png"
+            )
+
+
+
+
+elif method == "GAN 2 With Pytroch":
+
+
+    
+    st.title("Image Colorization with GAN 2 Pytroch")
+
+
     selected_model_name = st.selectbox("Pilih Pretrained Model", list(model_options.keys()))
     selected_model_file_id = model_options[selected_model_name]
     model_path = f'{selected_model_name}.pth'
+
 
     # Unduh model jika belum ada
     download_model_if_not_exists(model_path, selected_model_file_id)
@@ -241,6 +351,12 @@ elif method == "GAN (Generative Adversarial Network)":
             st.download_button(f"Download Result for {uploaded_file.name}", data=byte_im, file_name=f"colorized_image_{uploaded_file.name}", mime="image/jpeg")
 
 
+
+
+
+
+
+
 # Model OpenCV
 elif method == "CNN Pretrained Caffe":
     st.title("Image Colorization with CNN Pretrained Caffe")
@@ -262,7 +378,7 @@ elif method == "CNN Pretrained Caffe":
         PROTOTXT_URL = 'https://drive.google.com/uc?id=1DZ4cFBYC3_KjOn2ayrhnk2XKHt6E54EJ'
         POINTS_URL = 'https://drive.google.com/uc?id=1Qh54l1Jhh5psiytgsv9WmJVByjpHdF8o'
         MODEL_URL = 'https://drive.google.com/uc?id=1RCb6SJN2T5tdrpPUXEx0L4GBaTtc2OcL'
-        
+
         # Download the model files
         gdown.download(PROTOTXT_URL, PROTOTXT_PATH, quiet=False)
         gdown.download(POINTS_URL, POINTS_PATH, quiet=False)
